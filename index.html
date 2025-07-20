@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Scan Meesho Return (AWB + Date - Data Matrix/1D)</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 20px;
+        text-align: center;
+      }
+      label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+      }
+      input[type="text"],
+      input[type="date"] {
+        width: calc(100% - 20px);
+        padding: 10px;
+        margin-bottom: 15px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        box-sizing: border-box;
+        max-width: 400px;
+      }
+      input[type="submit"] {
+        background-color: #4caf50;
+        color: white;
+        padding: 10px 15px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 16px;
+      }
+      input[type="submit"]:hover {
+        background-color: #45a049;
+      }
+      #video-container {
+        position: relative;
+        width: 100%;
+        max-width: 600px;
+        margin: 0 auto 20px;
+        border: 1px solid #eee;
+        background-color: #000;
+      }
+      #video {
+        width: 100%;
+        height: auto;
+        display: block;
+      }
+      #loadingMessage {
+        padding: 10px;
+        background-color: #f0f0f0;
+        border-radius: 5px;
+        margin-bottom: 15px;
+      }
+      #output {
+        margin-top: 15px;
+        font-weight: bold;
+        color: green;
+      }
+      /* Style for the overlay to show where scanning is happening */
+      .scan-region {
+        border: 2px dashed #00f;
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        width: 70%; /* Adjust as needed */
+        height: 30%; /* Adjust as needed */
+      }
+    </style>
+    <script
+      type="text/javascript"
+      src="https://cdn.jsdelivr.net/npm/@zxing/library@0.19.1/umd/index.min.js"
+    ></script>
+  </head>
+  <body>
+    <h1>Scan Meesho Return</h1>
+
+    <div id="loadingMessage">🎥 Loading video...</div>
+    <div id="video-container">
+      <video id="video" playsinline></video>
+      <div class="scan-region"></div>
+    </div>
+    <div id="output"></div>
+
+    <form action="YOUR_N8N_WEBHOOK_URL" method="POST">
+      <label for="trackingId">Tracking ID (AWB from scan):</label>
+      <input type="text" id="trackingId" name="trackingId" required />
+
+      <label for="receivedDate">Received Date:</label>
+      <input type="date" id="receivedDate" name="receivedDate" required />
+
+      <input type="submit" value="Add to Sheet" />
+    </form>
+
+    <script>
+      const video = document.getElementById("video");
+      const loadingMessage = document.getElementById("loadingMessage");
+      const outputDiv = document.getElementById("output");
+      const trackingIdInput = document.getElementById("trackingId");
+      const receivedDateInput = document.getElementById("receivedDate");
+
+      // ZXing code reader instance
+      let codeReader; // Declared globally
+      let controls; // To control the camera stream
+
+      async function startScanning() {
+        loadingMessage.innerText = "🎥 Loading video...";
+        outputDiv.innerText = "";
+        trackingIdInput.value = ""; // Clear previous scan
+
+        if (codeReader) {
+          // If already initialized, just restart
+          codeReader.reset();
+        } else {
+          codeReader = new ZXing.BrowserMultiFormatReader();
+        }
+
+        try {
+          // Request camera permission and start decoding
+          // You can specify preferred devices if needed: codeReader.getVideoInputDevices()
+          // facingMode: 'environment' typically means rear camera
+          controls = await codeReader.decodeFromVideoDevice(
+            null,
+            video,
+            (result, err) => {
+              if (result) {
+                console.log("Scan Result:", result.getText());
+                trackingIdInput.value = result.getText();
+                outputDiv.innerText = `AWB Scanned: ${result.getText()}`;
+                controls.stop(); // Stop scanning after first successful scan
+                receivedDateInput.focus(); // Focus on date for manual entry
+              }
+              if (err && !(err instanceof ZXing.NotFoundException)) {
+                console.error("Scan Error:", err);
+                outputDiv.innerText = `Error scanning: ${err.message}`;
+              }
+            }
+          );
+          loadingMessage.hidden = true;
+          console.log("ZXing scanner started.");
+        } catch (err) {
+          console.error("Camera access or ZXing init error:", err);
+          loadingMessage.innerText = `Error accessing camera: ${err.message}. Please ensure HTTPS and camera permissions are granted.`;
+        }
+      }
+
+      // --- Event Listeners and Initial Setup ---
+
+      // Start scanning automatically when the page loads
+      document.addEventListener("DOMContentLoaded", (event) => {
+        startScanning(); // Start the scanner
+
+        // Set default date to today for convenience
+        const today = new Date();
+        const year = today.getFullYear();
+        const month = String(today.getMonth() + 1).padStart(2, "0"); // Months are 0-indexed
+        const day = String(today.getDate()).padStart(2, "0");
+        receivedDateInput.value = `${year}-${month}-${day}`;
+      });
+
+      // Optional: Re-start scanning if the AWB field is cleared
+      trackingIdInput.addEventListener("input", function () {
+        if (trackingIdInput.value === "") {
+          startScanning(); // Restart scanner if input is cleared
+        }
+      });
+
+      // Stop camera stream when navigating away or submitting the form
+      document.querySelector("form").addEventListener("submit", function () {
+        if (controls) {
+          controls.stop();
+        }
+      });
+
+      window.addEventListener("beforeunload", () => {
+        if (controls) {
+          controls.stop();
+        }
+      });
+    </script>
+  </body>
+</html>
