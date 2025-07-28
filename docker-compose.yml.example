@@ -1,0 +1,17 @@
+services:
+  static-website:
+    build: .
+    container_name: meesho-return-order-tracking
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.meesho-return-order-tracking.rule=Host(`your-domain.com`)" # <--- CHANGE THIS TO YOUR DOMAIN
+      - "traefik.http.routers.meesho-return-order-tracking.entrypoints=websecure"
+      - "traefik.http.routers.meesho-return-order-tracking.tls.certresolver=letsencrypt"
+      - "traefik.http.services.meesho-return-order-tracking.loadbalancer.server.port=80"
+    restart: unless-stopped
+    networks:
+      - web
+
+networks:
+  web:
+    external: true # This network is typically managed by Traefik
