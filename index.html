@@ -2,6 +2,7 @@
 <html>
   <head>
     <title>Scan Meesho Return (AWB + Date - Data Matrix/1D)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <style>
       body {
         font-family: Arial, sans-serif;
@@ -14,7 +15,8 @@
         font-weight: bold;
       }
       input[type="text"],
-      input[type="date"] {
+      input[type="date"],
+      select {
         width: calc(100% - 20px);
         padding: 10px;
         margin-bottom: 15px;
@@ -22,18 +24,31 @@
         border-radius: 4px;
         box-sizing: border-box;
         max-width: 400px;
+        /* To ensure select looks similar */
+        height: 40px;
+        background-color: white;
       }
+      button,
       input[type="submit"] {
-        background-color: #4caf50;
         color: white;
         padding: 10px 15px;
         border: none;
         border-radius: 4px;
         cursor: pointer;
         font-size: 16px;
+        margin-top: 5px; /* Add some space */
+      }
+      input[type="submit"] {
+        background-color: #4caf50;
       }
       input[type="submit"]:hover {
         background-color: #45a049;
+      }
+      #scanPacketQrButton {
+        background-color: #008cba; /* Blue */
+      }
+      #scanPacketQrButton:hover {
+        background-color: #007ba7;
       }
       #video-container {
         position: relative;
@@ -69,11 +84,24 @@
         width: 70%; /* Adjust as needed */
         height: 30%; /* Adjust as needed */
       }
+
+      @media (max-width: 600px) {
+        body {
+          margin: 10px;
+        }
+        input[type="text"],
+        input[type="date"],
+        select {
+          width: 100%;
+          max-width: none;
+        }
+      }
     </style>
     <script
       type="text/javascript"
       src="https://cdn.jsdelivr.net/npm/@zxing/library@0.19.1/umd/index.min.js"
     ></script>
+    <script src="config.js"></script>
   </head>
   <body>
     <h1>Scan Meesho Return</h1>
@@ -84,6 +112,16 @@
       <div class="scan-region"></div>
     </div>
     <div id="output"></div>
+    <audio
+      id="scan-sound"
+      src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"
+      preload="auto"
+    ></audio>
+    <audio
+      id="submit-sound"
+      src="https://actions.google.com/sounds/v1/alarms/bugle_tune.ogg"
+      preload="auto"
+    ></audio>
 
     <form action="YOUR_N8N_WEBHOOK_URL" method="POST">
       <label for="trackingId">Tracking ID (AWB from scan):</label>
@@ -91,6 +129,25 @@
 
       <label for="receivedDate">Received Date:</label>
       <input type="date" id="receivedDate" name="receivedDate" required />
+
+      <label for="orderId">Order ID:</label>
+      <input type="text" id="orderId" name="orderId" />
+
+      <label for="product">Product:</label>
+      <select id="product" name="product">
+        <option value="200g">200g</option>
+        <option value="Colour">Colour</option>
+      </select>
+
+      <label for="rtoReturn">RTO/Return:</label>
+      <select id="rtoReturn" name="rtoReturn">
+        <option value="RTO">RTO</option>
+        <option value="Return">Return</option>
+      </select>
+
+      <label for="packetQr">Packet QR:</label>
+      <input type="text" id="packetQr" name="packetQr" />
+      <button type="button" id="scanPacketQrButton">Scan QR</button>
 
       <input type="submit" value="Add to Sheet" />
     </form>
@@ -101,57 +158,64 @@
       const outputDiv = document.getElementById("output");
       const trackingIdInput = document.getElementById("trackingId");
       const receivedDateInput = document.getElementById("receivedDate");
+      const packetQrInput = document.getElementById("packetQr");
+      const scanPacketQrButton = document.getElementById("scanPacketQrButton");
+      const scanSound = document.getElementById("scan-sound");
+      const submitSound = document.getElementById("submit-sound");
 
       // ZXing code reader instance
       let codeReader; // Declared globally
-      let controls; // To control the camera stream
+      let currentTargetInput; // To know which input to fill
 
-      async function startScanning() {
+      async function startScanning(targetInput) {
         loadingMessage.innerText = "🎥 Loading video...";
         outputDiv.innerText = "";
-        trackingIdInput.value = ""; // Clear previous scan
+        targetInput.value = ""; // Clear previous scan
 
-        if (codeReader) {
-          // If already initialized, just restart
-          codeReader.reset();
-        } else {
+        currentTargetInput = targetInput;
+
+        if (!codeReader) {
           codeReader = new ZXing.BrowserMultiFormatReader();
         }
 
         try {
           // Request camera permission and start decoding
-          // You can specify preferred devices if needed: codeReader.getVideoInputDevices()
-          // facingMode: 'environment' typically means rear camera
-          controls = await codeReader.decodeFromVideoDevice(
-            null,
-            video,
-            (result, err) => {
-              if (result) {
-                console.log("Scan Result:", result.getText());
-                trackingIdInput.value = result.getText();
-                outputDiv.innerText = `AWB Scanned: ${result.getText()}`;
-                controls.stop(); // Stop scanning after first successful scan
-                receivedDateInput.focus(); // Focus on date for manual entry
-              }
-              if (err && !(err instanceof ZXing.NotFoundException)) {
-                console.error("Scan Error:", err);
-                outputDiv.innerText = `Error scanning: ${err.message}`;
-              }
+          const hints = new Map();
+          hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+          hints.set(ZXing.DecodeHintType.WILL_READ_FREQUENTLY, true);
+          codeReader.hints = hints;
+          await codeReader.decodeFromVideoDevice(null, video, (result, err) => {
+            if (result) {
+              console.log("Scan Result:", result.getText());
+              scanSound.play();
+              currentTargetInput.value = result.getText();
+              outputDiv.innerText = `Scanned: ${result.getText()}`;
+              codeReader.reset(); // Stop scanning after first successful scan
             }
-          );
+            if (err && !(err instanceof ZXing.NotFoundException)) {
+              console.error("Scan Error:", err);
+              outputDiv.innerText = `Error scanning: ${err.message}`;
+            }
+          });
           loadingMessage.hidden = true;
           console.log("ZXing scanner started.");
         } catch (err) {
-          console.error("Camera access or ZXing init error:", err);
-          loadingMessage.innerText = `Error accessing camera: ${err.message}. Please ensure HTTPS and camera permissions are granted.`;
+          // When scan is stopped by reset(), it throws an exception. We can ignore it.
+          if (err && err.name !== "StopException") {
+            console.error("Camera access or ZXing init error:", err);
+            loadingMessage.innerText = `Error accessing camera: ${err.message}. Please ensure HTTPS and camera permissions are granted.`;
+          }
         }
       }
 
       // --- Event Listeners and Initial Setup ---
 
-      // Start scanning automatically when the page loads
+      // Start scanning for Tracking ID automatically when the page loads
       document.addEventListener("DOMContentLoaded", (event) => {
-        startScanning(); // Start the scanner
+        if (typeof N8N_WEBHOOK_URL !== "undefined") {
+          document.querySelector("form").action = N8N_WEBHOOK_URL;
+        }
+        startScanning(trackingIdInput);
 
         // Set default date to today for convenience
         const today = new Date();
@@ -161,23 +225,76 @@
         receivedDateInput.value = `${year}-${month}-${day}`;
       });
 
-      // Optional: Re-start scanning if the AWB field is cleared
+      // Re-start scanning for Tracking ID if the field is cleared
       trackingIdInput.addEventListener("input", function () {
         if (trackingIdInput.value === "") {
-          startScanning(); // Restart scanner if input is cleared
+          startScanning(trackingIdInput);
         }
+      });
+
+      // Start scanning for Packet QR when the button is clicked
+      scanPacketQrButton.addEventListener("click", function () {
+        startScanning(packetQrInput);
       });
 
       // Stop camera stream when navigating away or submitting the form
-      document.querySelector("form").addEventListener("submit", function () {
-        if (controls) {
-          controls.stop();
-        }
-      });
+      document
+        .querySelector("form")
+        .addEventListener("submit", async function (event) {
+          event.preventDefault(); // Prevent the default form submission
+
+          if (codeReader) {
+            codeReader.reset();
+          }
+
+          const form = event.target;
+          const formData = new FormData(form);
+          const data = Object.fromEntries(formData.entries());
+
+          // Show a "sending" message
+          const submitButton = form.querySelector('input[type="submit"]');
+          const originalButtonText = submitButton.value;
+          submitButton.value = "Submitting...";
+          submitButton.disabled = true;
+          outputDiv.innerText = "";
+
+          try {
+            const response = await fetch(form.action, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify(data),
+            });
+
+            if (response.ok) {
+              outputDiv.innerText = "Data submitted successfully!";
+              submitSound.play();
+              form.reset(); // Clear the form for the next entry
+              // Set default date to today for convenience
+              const today = new Date();
+              const year = today.getFullYear();
+              const month = String(today.getMonth() + 1).padStart(2, "0"); // Months are 0-indexed
+              const day = String(today.getDate()).padStart(2, "0");
+              receivedDateInput.value = `${year}-${month}-${day}`;
+              startScanning(trackingIdInput); // Start scanning for the next item
+            } else {
+              const errorText = await response.text();
+              outputDiv.innerText = `Error: ${errorText}`;
+            }
+          } catch (error) {
+            console.error("Submission Error:", error);
+            outputDiv.innerText = `Network Error: ${error.message}`;
+          } finally {
+            // Restore the button
+            submitButton.value = originalButtonText;
+            submitButton.disabled = false;
+          }
+        });
 
       window.addEventListener("beforeunload", () => {
-        if (controls) {
-          controls.stop();
+        if (codeReader) {
+          codeReader.reset();
         }
       });
     </script>
