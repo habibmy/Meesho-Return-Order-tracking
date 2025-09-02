@@ -270,13 +270,9 @@
             if (response.ok) {
               outputDiv.innerText = "Data submitted successfully!";
               submitSound.play();
+              const receivedDate = receivedDateInput.value; // Preserve the date
               form.reset(); // Clear the form for the next entry
-              // Set default date to today for convenience
-              const today = new Date();
-              const year = today.getFullYear();
-              const month = String(today.getMonth() + 1).padStart(2, "0"); // Months are 0-indexed
-              const day = String(today.getDate()).padStart(2, "0");
-              receivedDateInput.value = `${year}-${month}-${day}`;
+              receivedDateInput.value = receivedDate; // Restore the date
               startScanning(trackingIdInput); // Start scanning for the next item
             } else {
               const errorText = await response.text();
